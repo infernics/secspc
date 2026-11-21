@@ -1,0 +1,263 @@
+name: Build SecNote APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Test and build SecNote 1.4.15
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK 35
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
+
+      - name: Locate Android project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'status=$?; echo "ERROR: command failed at line ${LINENO}: ${BASH_COMMAND} (exit ${status})" >&2; exit "$status"' ERR
+          SETTINGS_FILE="$(find . -type f -name settings.gradle.kts -not -path '*/.gradle/*' -print -quit)"
+          if [[ -z "$SETTINGS_FILE" ]]; then
+            echo "ERROR: settings.gradle.kts was not found. Upload the contents of the SecNote project folder to the repository root."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found: $PROJECT_DIR"
+
+      - name: Verify project files and application identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'status=$?; echo "ERROR: command failed at line ${LINENO}: ${BASH_COMMAND} (exit ${status})" >&2; exit "$status"' ERR
+          PROJECT_DIR="${{ steps.project.outputs.dir }}"
+          BUILD_FILE="$PROJECT_DIR/app/build.gradle.kts"
+          test -f "$BUILD_FILE"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/PanicCredential.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/EmergencyWipe.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/NoteSaveQueue.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/StorageGate.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/Vault.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/ThumbnailDecodePolicy.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/PhotoDatePolicy.kt"
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          if find "$PROJECT_DIR" -type f \( -iname '*.keystore' -o -iname '*.jks' -o -iname '*.p12' -o -iname '*.pfx' \) -not -path '*/.git/*' -print -quit | grep -q .; then
+            echo "Remove private signing material from the repository before continuing."
+            exit 1
+          fi
+          if find "$PROJECT_DIR" -type f \( -iname 'README*' -o -iname 'SECURITY*' -o -iname 'LICENSE*' -o -iname 'NOTICE*' -o -iname '*.md' -o -iname '*.markdown' -o -iname '*.txt' -o -iname '*.pdf' \) -not -path '*/.git/*' -print -quit | grep -q .; then
+            echo "Remove documentation and notice files from the project snapshot before continuing."
+            exit 1
+          fi
+          test -f "$PROJECT_DIR/app/src/main/java/infernics/notes/AutoLockPolicy.kt"
+          test -f "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/PanicCredentialTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/NoteOrderingTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/AutoLockPolicyTest.kt"
+          test -f "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/HiddenVaultTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/ThumbnailDecodePolicyTest.kt"
+          test -f "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/CryptoTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/PasswordKdfTest.kt"
+          test -f "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/PasswordKdfInstrumentedTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/BackupArchiveRulesTest.kt"
+          test -f "$PROJECT_DIR/app/src/test/java/infernics/notes/PhotoDatePolicyTest.kt"
+          grep -Fq 'persistedVerifierDoesNotContainThePassphrase' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/HiddenVaultTest.kt"
+          grep -Fq 'internal fun createRecord' "$PROJECT_DIR/app/src/main/java/infernics/notes/PanicCredential.kt"
+          grep -Fq 'internal fun verifyRecord' "$PROJECT_DIR/app/src/main/java/infernics/notes/PanicCredential.kt"
+          grep -Fq 'applicationId = "infernics.notes"' "$BUILD_FILE"
+          grep -Fq 'compileSdk = 35' "$BUILD_FILE"
+          grep -Fq 'androidx.exifinterface:exifinterface:1.3.7' "$BUILD_FILE"
+          grep -Fq 'id("com.android.application") version "8.6.1" apply false' "$PROJECT_DIR/build.gradle.kts"
+          grep -Fq 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7' "$BUILD_FILE"
+          grep -Fq 'androidx.camera:camera-core:1.5.3' "$BUILD_FILE"
+          grep -Fq 'androidx.camera:camera-camera2:1.5.3' "$BUILD_FILE"
+          grep -Fq 'androidx.camera:camera-lifecycle:1.5.3' "$BUILD_FILE"
+          grep -Fq 'androidx.camera:camera-view:1.5.3' "$BUILD_FILE"
+          grep -Fq 'namespace = "infernics.notes"' "$BUILD_FILE"
+          grep -Fq 'versionCode = 23' "$BUILD_FILE"
+          grep -Fq 'versionName = "1.4.15"' "$BUILD_FILE"
+          grep -Fq 'testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"' "$BUILD_FILE"
+          grep -Fq 'com.lambdapioneer.argon2kt:argon2kt:1.6.0' "$BUILD_FILE"
+          grep -Fq 'mCostInKibibyte = MEMORY_KIB' "$PROJECT_DIR/app/src/main/java/infernics/notes/PasswordKdf.kt"
+          grep -Fq 'tCostInIterations = ITERATIONS' "$PROJECT_DIR/app/src/main/java/infernics/notes/PasswordKdf.kt"
+          grep -Fq 'Argon2Mode.ARGON2_ID' "$PROJECT_DIR/app/src/main/java/infernics/notes/PasswordKdf.kt"
+          grep -Fq 'parallelism = PARALLELISM' "$PROJECT_DIR/app/src/main/java/infernics/notes/PasswordKdf.kt"
+          grep -Fq 'Argon2Version.V13' "$PROJECT_DIR/app/src/main/java/infernics/notes/PasswordKdf.kt"
+          grep -Fq 'matchesArgon2idVersion13ReferenceVector' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/PasswordKdfInstrumentedTest.kt"
+          grep -Fq 'SecNoteVaultSaltKey' "$PROJECT_DIR/app/src/main/java/infernics/notes/Vault.kt"
+          grep -Fq 'fun matchesPassphrase' "$PROJECT_DIR/app/src/main/java/infernics/notes/Vault.kt"
+          grep -Fq 'StorageGate.blockAndDrain()' "$PROJECT_DIR/app/src/main/java/infernics/notes/EmergencyWipe.kt"
+          grep -Fq 'Crypto.destroyAll()' "$PROJECT_DIR/app/src/main/java/infernics/notes/EmergencyWipe.kt"
+          grep -Fq 'getExternalFilesDirs(null)' "$PROJECT_DIR/app/src/main/java/infernics/notes/EmergencyWipe.kt"
+          grep -Fq 'HiddenVault.DIRECTORY_NAME' "$PROJECT_DIR/app/src/main/java/infernics/notes/EmergencyWipe.kt"
+          grep -Fq 'IdentityHashMap<Crypto, Boolean>' "$PROJECT_DIR/app/src/main/java/infernics/notes/Crypto.kt"
+          grep -Fq 'fun matchesPassphrase' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'fun unlockFromRecord' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'createTempFile("$cachePrefix-export-' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'cleanupAbandonedTemporaryFiles(this)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'hiddenVaultConfigured = false' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'lockCleanupPending = lockCleanupPending' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'lockCleanupPending: Boolean' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'val sessionKey = hiddenCrypto' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onDispose { sessionKey?.destroy() }' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'PanicCredential.verify(context, suppliedPassword)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'HiddenVault.destroy(context)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'fun recoverInterruptedWipe(context: Context)' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'wipeLocalPayload(context.filesDir, context.cacheDir)' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'TabRow(selectedTabIndex = selectedTab)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Text("Фото (${imageFiles.size})")' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Text("Документы (${otherFiles.size})")' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'acceptsASingleCharacterSecretAndRejectsOnlyEmptyInput' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/PanicCredentialTest.kt"
+          grep -Fq 'acceptsASingleCharacterHiddenPasswordAndRejectsOnlyEmptyInput' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/HiddenVaultTest.kt"
+          grep -Fq 'hiddenWipeRemovesOnlyHiddenFilesAndHiddenTemporaryPreviews' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/HiddenVaultTest.kt"
+          ! grep -E 'length *>= *([0-9]+)|не менее [0-9]+ символ|от [0-9]+ символ|[0-9]+\+ символов' "$PROJECT_DIR/app/src/main/java/infernics/notes/Vault.kt" "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt" "$PROJECT_DIR/app/src/main/java/infernics/notes/PanicCredential.kt" "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt" "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'detectTapGestures(' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'longPressTimeoutMillis: Long = 5_000L' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onLongPress = { hiddenVaultCallback() }' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onTap = { lockCallback() }' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'withTimeoutOrNull(5_000L)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'storageDirectoryName = HiddenVault.DIRECTORY_NAME' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Eiq 'BiometricVault|BIOMETRIC|AndroidKeyStore' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'delay(4_000)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'limitedParallelism(1)' "$PROJECT_DIR/app/src/main/java/infernics/notes/NoteSaveQueue.kt"
+          grep -Fq 'suspend fun awaitIdle()' "$PROJECT_DIR/app/src/main/java/infernics/notes/NoteSaveQueue.kt"
+          grep -Fq 'StorageGate.resumeAfterUnlock()' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'StorageGate.resumeAfterNewVault()' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'StorageGate.withAccess(generation)' "$PROJECT_DIR/app/src/main/java/infernics/notes/HiddenVault.kt"
+          grep -Fq 'fun <T> withExclusiveAccess(action: () -> T)' "$PROJECT_DIR/app/src/main/java/infernics/notes/StorageGate.kt"
+          grep -Fq 'StorageGate.withExclusiveAccess' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'NoteSaveQueue.awaitIdle()' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'fun reorder(' "$PROJECT_DIR/app/src/main/java/infernics/notes/NoteRepository.kt"
+          grep -Fq 'getAutoLockMinutes' "$PROJECT_DIR/app/src/main/java/infernics/notes/AppPreferences.kt"
+          grep -Fq 'supportedMinutes' "$PROJECT_DIR/app/src/main/java/infernics/notes/AppPreferences.kt"
+          grep -Fq 'setOf(-1, 0, 1, 5, 10, 15, 30)' "$PROJECT_DIR/app/src/main/java/infernics/notes/AutoLockPolicy.kt"
+          grep -Fq 'shouldLockImmediately(autoLockMinutes)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'autoLockMinutes > 0' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Никогда' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onBiometricUnlock { errorMessage = it }' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Нажмите на замок для входа по биометрии' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'swapNotePositions' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'internal fun swapNotePositions' "$PROJECT_DIR/app/src/main/java/infernics/notes/NoteRepository.kt"
+          ! grep -Fq 'Войти по отпечатку' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'overwriteAndDelete' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'bestEffortOverwriteSource' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'fun importManyAndRemoveOriginal' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'private fun selectedDocumentUris' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'preserveSessionOnTemporaryUiReturn' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'android.permission.CAMERA' "$PROJECT_DIR/app/src/main/AndroidManifest.xml"
+          grep -Fq 'fun saveCapturedPhoto' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'OnImageCapturedCallback' "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          grep -Fq 'CameraJpegEncoder.toUprightJpeg' "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          grep -Fq 'storageDirectoryName: String = "file_vault"' "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          grep -Fq 'FileVaultRepository(context, crypto, storageDirectoryName)' "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          grep -Fq 'storageDirectoryName = HiddenVault.DIRECTORY_NAME' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onOpenCamera = { cameraVisible = true }' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'SmallFloatingActionButton(onClick = onOpenCamera)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'ThumbnailDecodePolicy.sampleSize(width, height, maxDimension)' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'inPreferredConfig = Bitmap.Config.RGB_565' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'catch (_: OutOfMemoryError)' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          ! grep -Fq 'DisposableEffect(thumbnail)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'DisposableEffect(bitmap)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'bitmap.recycle()' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'previewLoadFinished' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'cameraSizedPhotoIsDecodedWithBoundedSampling' "$PROJECT_DIR/app/src/test/java/infernics/notes/ThumbnailDecodePolicyTest.kt"
+          grep -Fq 'jpegPayloadSurvivesVaultStreamingEncryption' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/CryptoTest.kt"
+          ! grep -Fq 'IconButton(onClick = onOpenCamera)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'ImageCapture.OutputFileOptions' "$PROJECT_DIR/app/src/main/java/infernics/notes/CameraCaptureScreen.kt"
+          ! grep -Fq 'lockAfterPicker' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'Переместить файл в защищённое хранилище?' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'selected = !darkTheme' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'selected = darkTheme' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'FlowRow(' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'fun exportBackup(' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'fun restoreBackup(' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'internal object BackupImportInputValidation' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'onProgress: (String) -> Unit = {}' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'BackupImportInputValidation.error' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'backupImportError = "Восстановление не выполнено:' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Прежний основной пароль SecNote' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'backupImportProgress' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'backupStatus' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'heightIn(max = 440.dp).verticalScroll(rememberScrollState())' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'backupCrypto.encryptStream(streamInput, output)' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'activeBackupCrypto.decryptStream(input, decryptedOutput)' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'validateVaultPayload(payload' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'recoverInterruptedRestore(this)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'backupOperationInProgress' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'onBackupRestored' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'ActivityResultContracts.CreateDocument' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'ActivityResultContracts.OpenDocument' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'installPortableState' "$PROJECT_DIR/app/src/main/java/infernics/notes/Vault.kt"
+          grep -Fq 'backupSettings' "$PROJECT_DIR/app/src/main/java/infernics/notes/AppPreferences.kt"
+          grep -Fq 'hidden/${HiddenVault.METADATA_FILE_NAME}' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'portableVerifierRecordHasAnExactExpectedLength' "$PROJECT_DIR/app/src/androidTest/java/infernics/notes/HiddenVaultTest.kt"
+          grep -Fq 'BackupArchiveRules.validateFilePairs' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'validatesPairedFilePayloads' "$PROJECT_DIR/app/src/test/java/infernics/notes/BackupArchiveRulesTest.kt"
+          grep -Fq 'requiresBothNonEmptyPasswordsButHasNoMinimumLength' "$PROJECT_DIR/app/src/test/java/infernics/notes/BackupArchiveRulesTest.kt"
+          grep -Fq 'rejectsUsingTheSamePasswordForBothFields' "$PROJECT_DIR/app/src/test/java/infernics/notes/BackupArchiveRulesTest.kt"
+          grep -Fq 'if (!hiddenVaultConfigured)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'дополнительного хранилища' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          ! grep -Fq 'дополнительного хранилища' "$PROJECT_DIR/app/src/main/java/infernics/notes/BackupManager.kt"
+          grep -Fq 'SwitchDefaults.colors(' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'uncheckedTrackColor = if (darkTheme)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq '.animateItem()' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'PhotoDatePolicy.matches' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'PhotoDatePolicy.groupLabel(dayKey)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'dateTakenAt = originalPhotoDate' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'resolveLegacyPhotoDate(item)' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'PhotoDatePolicy.parseExifTimestamp' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          ! grep -Fq 'saveAttributes()' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          ! grep -Fq 'setAttribute(' "$PROJECT_DIR/app/src/main/java/infernics/notes/FileVaultRepository.kt"
+          grep -Fq 'setInitialBiometricOfferPending(context, true)' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'Включить биометрический вход?' "$PROJECT_DIR/app/src/main/java/infernics/notes/MainActivity.kt"
+          grep -Fq 'isInitialBiometricOfferPending' "$PROJECT_DIR/app/src/main/java/infernics/notes/AppPreferences.kt"
+          grep -Fq 'sourceDateCanRemainDifferentFromImportDate' "$PROJECT_DIR/app/src/test/java/infernics/notes/PhotoDatePolicyTest.kt"
+          echo "Verified: infernics.notes, SecNote 1.4.15 (code 23), Argon2id profile, native KDF test setup, and existing application checks"
+
+      - name: Run unit tests and build APK
+        run: gradle -p "${{ steps.project.outputs.dir }}" clean testDebugUnitTest assembleDebug --no-daemon --stacktrace
+
+      - name: Run Android instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          disable-animations: true
+          script: gradle -p "${{ steps.project.outputs.dir }}" connectedDebugAndroidTest --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
